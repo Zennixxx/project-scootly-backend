@@ -1,14 +1,18 @@
 import express from "express";
 import dotenv from "dotenv";
-import userRouter from "./routes/user.js";
 import cors from "cors";
+import userRoute from "./routes/user.js";
+import scooterRoute from "./routes/scooter.js";
+import { validateRegisterUser } from "./middleware/validation.js";
+import { checkAuth } from "./middleware/checkAuth.js";
 
 const app = express();
+dotenv.config();
 app.use(express.json());
 app.use(cors());
-dotenv.config();
 
-app.use("/api/users", userRouter);
+app.use("/api/user", validateRegisterUser, userRoute);
+app.use("/api/scooter", checkAuth, scooterRoute);
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
