@@ -74,6 +74,14 @@ export const getAllByFilters = async (req, res) => {
         if (max) queryArray.push(Query.lessThanEqual("price", max));
       } else if (filter === "location") {
         locationFilter = value;
+      } else if (filter === "rented") {
+        if (value === true || value === false) {
+          queryArray.push(Query.equal("rented", value));
+        } else {
+          return res
+            .status(400)
+            .json({ message: "Rented filter is not valid" });
+        }
       }
     }
 
