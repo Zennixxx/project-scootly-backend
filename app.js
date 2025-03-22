@@ -11,7 +11,8 @@ dotenv.config();
 app.use(express.json());
 app.use(cors());
 
-app.use("/api/user", validateRegisterUser, userRoute);
+app.use("/api/user/register", validateRegisterUser, userRoute);
+app.use("/api/user", userRoute);
 app.use("/api/scooter", checkAuth, scooterRoute);
 
 const PORT = process.env.PORT || 5000;

@@ -3,10 +3,18 @@ import { Query } from "node-appwrite";
 import dotenv from "dotenv";
 import validator from "validator";
 import geolib from "geolib";
+import cache from "../utils/cache.js";
+import sdk from "node-appwrite";
 dotenv.config();
 
 export const getAllScooters = async (req, res) => {
   try {
+    // Проверка кэша
+    const cachedScooters = cache.get("scooters");
+    if (cachedScooters) {
+      return res.status(200).json({ scooters: cachedScooters });
+    }
+
     const scooters = await databases.listDocuments(
       process.env.APPWRITE_DATABASE_ID,
       process.env.APPWRITE_SCOOTER_COLLECTION_ID
@@ -14,6 +22,10 @@ export const getAllScooters = async (req, res) => {
     if (scooters.documents.length <= 0) {
       return res.status(400).json({ message: "Scooters not found" });
     }
+
+    // Сохраняем результат в кэш
+    cache.set("scooters", scooters.documents);
+
     res.status(200).json({ scooters: scooters.documents });
   } catch (error) {
     console.error(error);
@@ -116,5 +128,120 @@ export const getAllByFilters = async (req, res) => {
     return res.status(status).json({
       message: status === 404 ? "Scooters not found" : "Internal server error",
     });
+  }
+};
+
+export const rentScooter = async (req, res) => {
+  try {
+    const { scooterId, startRentTime, endRentTime, totalCost } = req.body;
+    const userId = req.headers["user-id"];
+    if (!userId || !scooterId || !startRentTime || !endRentTime) {
+      return res.status(400).json({
+        message: "User ID, scooter ID, start and end rent time are required",
+      });
+    }
+    const scooterRented = await databases
+      .getDocument(
+        process.env.APPWRITE_DATABASE_ID,
+        process.env.APPWRITE_SCOOTER_COLLECTION_ID,
+        scooterId
+      )
+      .then((scooter) => scooter.rented);
+    if (scooterRented) {
+      return res.status(400).json({ message: "Scooter is already rented" });
+    }
+    const response = await databases.updateDocument(
+      process.env.APPWRITE_DATABASE_ID,
+      process.env.APPWRITE_SCOOTER_COLLECTION_ID,
+      scooterId,
+      {
+        rented: true,
+        startRentTime: startRentTime,
+        endRentTime: endRentTime,
+      }
+    );
+    const history = await databases.createDocument(
+      process.env.APPWRITE_DATABASE_ID,
+      process.env.APPWRITE_RENT_HISTORY_COLLECTION_ID,
+      sdk.ID.unique(), // generate a unique ID for the rent history
+      {
+        userId: userId,
+        scooterId: scooterId,
+        startRentTime: startRentTime,
+        endRentTime: endRentTime,
+        totalCost: totalCost,
+        status: "rented",
+      }
+    );
+    if (!history || !response) {
+      return res.status(404).json({ message: "Something went wrong" });
+    }
+    return res.status(200).json({ response });
+  } catch (error) {
+    console.error(error);
+    if (error.code === 404) {
+      return res.status(404).json({ message: "Scooter not found" });
+    }
+    res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+export const cancelRent = async (req, res) => {
+  try {
+    const { scooterId } = req.body;
+    const userId = req.headers["user-id"];
+    if (!userId || !scooterId) {
+      return res.status(400).json({
+        message: "User ID and scooter ID are required",
+      });
+    }
+    // Fetch scooter document to check rental status
+    const scooter = await databases.getDocument(
+      process.env.APPWRITE_DATABASE_ID,
+      process.env.APPWRITE_SCOOTER_COLLECTION_ID,
+      scooterId
+    );
+    if (!scooter.rented) {
+      return res.status(400).json({ message: "Scooter is not rented" });
+    }
+    // Update scooter document: mark as available
+    const response = await databases.updateDocument(
+      process.env.APPWRITE_DATABASE_ID,
+      process.env.APPWRITE_SCOOTER_COLLECTION_ID,
+      scooterId,
+      {
+        rented: false,
+        startRentTime: null,
+        endRentTime: null,
+      }
+    );
+    // Find the active rent history document for this user and scooter (status "rented")
+    const rentHistoryResult = await databases.listDocuments(
+      process.env.APPWRITE_DATABASE_ID,
+      process.env.APPWRITE_RENT_HISTORY_COLLECTION_ID,
+      [
+        Query.equal("userId", userId),
+        Query.equal("scooterId", scooterId),
+        Query.equal("status", "rented"),
+      ]
+    );
+    if (rentHistoryResult.documents.length === 0) {
+      return res.status(404).json({ message: "Rent history not found" });
+    }
+    // Update the found rent history document to "cancelled"
+    const historyDocId = rentHistoryResult.documents[0].$id;
+    const updatedHistory = await databases.updateDocument(
+      process.env.APPWRITE_DATABASE_ID,
+      process.env.APPWRITE_RENT_HISTORY_COLLECTION_ID,
+      historyDocId,
+      { status: "cancelled" }
+    );
+    return res.status(200).json({ response, updatedHistory });
+  } catch (error) {
+    console.error(error);
+    if (error.code === 404) {
+      return res.status(404).json({ message: "Scooter not found" });
+    }
+    res.status(500).json({ message: "Internal server error" });
   }
 };
