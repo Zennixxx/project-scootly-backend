@@ -62,7 +62,7 @@ export const getAllByFilters = async (req, res) => {
     const { filters } = req.body;
     if (!filters)
       return res.status(400).json({ message: "Filters are required" });
-    console.log(filters);
+    // console.log(filters);
 
     const queryArray = [];
     let locationFilter = null;
