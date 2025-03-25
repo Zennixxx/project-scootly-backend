@@ -9,7 +9,6 @@ dotenv.config();
 
 export const getAllScooters = async (req, res) => {
   try {
-    // Проверка кэша
     const cachedScooters = cache.get("scooters");
     if (cachedScooters) {
       return res.status(200).json({ scooters: cachedScooters });
@@ -23,7 +22,6 @@ export const getAllScooters = async (req, res) => {
       return res.status(400).json({ message: "Scooters not found" });
     }
 
-    // Сохраняем результат в кэш
     cache.set("scooters", scooters.documents);
 
     res.status(200).json({ scooters: scooters.documents });
