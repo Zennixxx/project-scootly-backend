@@ -104,7 +104,7 @@ export const getAllByFilters = async (req, res) => {
       const { searchDistance, userCoords } = locationFilter || {};
       if (!searchDistance || !userCoords) {
         return res.status(400).json({
-          message: "Search radius and user coordinates are required",
+          message: "Search distance and user coordinates are required",
         });
       }
       scooters.documents = scooters.documents.filter((scooter) => {
@@ -135,19 +135,37 @@ export const rentScooter = async (req, res) => {
     const userId = req.headers["user-id"];
     if (!userId || !scooterId || !startRentTime || !endRentTime) {
       return res.status(400).json({
-        message: "User ID, scooter ID, start and end rent time are required",
+        message: "User ID, scooter ID, time are required",
       });
     }
-    const scooterRented = await databases
-      .getDocument(
-        process.env.APPWRITE_DATABASE_ID,
-        process.env.APPWRITE_SCOOTER_COLLECTION_ID,
-        scooterId
-      )
-      .then((scooter) => scooter.rented);
-    if (scooterRented) {
+
+    const existingRentals = await databases.listDocuments(
+      process.env.APPWRITE_DATABASE_ID,
+      process.env.APPWRITE_RENT_HISTORY_COLLECTION_ID,
+      [
+        Query.equal("userId", userId),
+        Query.equal("scooterId", scooterId),
+        Query.equal("status", "rented"),
+      ]
+    );
+
+    if (existingRentals.documents.length > 0) {
+      return res.status(400).json({
+        message: "You already have an active rental for this scooter",
+      });
+    }
+
+    const scooter = await databases.getDocument(
+      process.env.APPWRITE_DATABASE_ID,
+      process.env.APPWRITE_SCOOTER_COLLECTION_ID,
+      scooterId
+    );
+
+    if (scooter.rented) {
       return res.status(400).json({ message: "Scooter is already rented" });
     }
+
+    // Update only the fields that exist in the scooter collection schema
     const response = await databases.updateDocument(
       process.env.APPWRITE_DATABASE_ID,
       process.env.APPWRITE_SCOOTER_COLLECTION_ID,
@@ -156,12 +174,15 @@ export const rentScooter = async (req, res) => {
         rented: true,
         startRentTime: startRentTime,
         endRentTime: endRentTime,
+        // Remove userId field as it's not in the schema
       }
     );
+
+    // Store the userId in the rental history instead
     const history = await databases.createDocument(
       process.env.APPWRITE_DATABASE_ID,
       process.env.APPWRITE_RENT_HISTORY_COLLECTION_ID,
-      sdk.ID.unique(), // generate a unique ID for the rent history
+      sdk.ID.unique(),
       {
         userId: userId,
         scooterId: scooterId,
@@ -171,9 +192,23 @@ export const rentScooter = async (req, res) => {
         status: "rented",
       }
     );
+
     if (!history || !response) {
-      return res.status(404).json({ message: "Something went wrong" });
+      await databases.updateDocument(
+        process.env.APPWRITE_DATABASE_ID,
+        process.env.APPWRITE_SCOOTER_COLLECTION_ID,
+        scooterId,
+        {
+          rented: false,
+          startRentTime: null,
+          endRentTime: null,
+        }
+      );
+      return res
+        .status(500)
+        .json({ message: "Failed to complete rental process" });
     }
+
     return res.status(200).json({ response });
   } catch (error) {
     console.error(error);
@@ -193,7 +228,6 @@ export const cancelRent = async (req, res) => {
         message: "User ID and scooter ID are required",
       });
     }
-    // Fetch scooter document to check rental status
     const scooter = await databases.getDocument(
       process.env.APPWRITE_DATABASE_ID,
       process.env.APPWRITE_SCOOTER_COLLECTION_ID,
@@ -202,7 +236,6 @@ export const cancelRent = async (req, res) => {
     if (!scooter.rented) {
       return res.status(400).json({ message: "Scooter is not rented" });
     }
-    // Update scooter document: mark as available
     const response = await databases.updateDocument(
       process.env.APPWRITE_DATABASE_ID,
       process.env.APPWRITE_SCOOTER_COLLECTION_ID,
@@ -213,7 +246,6 @@ export const cancelRent = async (req, res) => {
         endRentTime: null,
       }
     );
-    // Find the active rent history document for this user and scooter (status "rented")
     const rentHistoryResult = await databases.listDocuments(
       process.env.APPWRITE_DATABASE_ID,
       process.env.APPWRITE_RENT_HISTORY_COLLECTION_ID,
@@ -226,7 +258,6 @@ export const cancelRent = async (req, res) => {
     if (rentHistoryResult.documents.length === 0) {
       return res.status(404).json({ message: "Rent history not found" });
     }
-    // Update the found rent history document to "cancelled"
     const historyDocId = rentHistoryResult.documents[0].$id;
     const updatedHistory = await databases.updateDocument(
       process.env.APPWRITE_DATABASE_ID,
