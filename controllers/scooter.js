@@ -171,10 +171,10 @@ export const rentScooter = async (req, res) => {
       process.env.APPWRITE_SCOOTER_COLLECTION_ID,
       scooterId,
       {
+        clientUserId: userId,
         rented: true,
         startRentTime: startRentTime,
         endRentTime: endRentTime,
-        // Remove userId field as it's not in the schema
       }
     );
 
@@ -199,6 +199,7 @@ export const rentScooter = async (req, res) => {
         process.env.APPWRITE_SCOOTER_COLLECTION_ID,
         scooterId,
         {
+          clientUserId: null,
           rented: false,
           startRentTime: null,
           endRentTime: null,
@@ -241,6 +242,7 @@ export const cancelRent = async (req, res) => {
       process.env.APPWRITE_SCOOTER_COLLECTION_ID,
       scooterId,
       {
+        clientUserId: null,
         rented: false,
         startRentTime: null,
         endRentTime: null,
