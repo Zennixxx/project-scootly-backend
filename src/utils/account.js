@@ -1,4 +1,4 @@
-import { users } from "./appwrite";
+import { users } from "./appwrite.js";
 
 export const getAccountById = async (req, res) => {
   try {

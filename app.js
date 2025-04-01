@@ -1,12 +1,16 @@
 import express from "express";
 import dotenv from "dotenv";
 import cors from "cors";
-import userRoute from "./routes/user.js";
-import scooterRoute from "./routes/scooter.js";
-import adminRouter from "./routes/admin.js";
-import renterRouter from "./routes/renter.js";
-import { validateRegisterUser } from "./middleware/validation.js";
-import { checkAdmin, checkAuth, checkRenter } from "./middleware/checkAuth.js";
+import userRoute from "./src/routes/user.js";
+import scooterRoute from "./src/routes/scooter.js";
+import adminRouter from "./src/routes/admin.js";
+import renterRouter from "./src/routes/renter.js";
+import { validateRegisterUser } from "./src/middleware/validation.js";
+import {
+  checkAdmin,
+  checkAuth,
+  checkRenter,
+} from "./src/middleware/checkAuth.js";
 
 const app = express();
 dotenv.config();

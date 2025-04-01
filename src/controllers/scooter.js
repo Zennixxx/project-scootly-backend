@@ -5,6 +5,7 @@ import validator from "validator";
 import geolib from "geolib";
 import cache from "../utils/cache.js";
 import sdk from "node-appwrite";
+import { reverseGeocode } from "../utils/geoapify.js";
 dotenv.config();
 
 export const getAllScooters = async (req, res) => {
@@ -55,12 +56,11 @@ export const getScooterById = async (req, res) => {
   }
 };
 
-export const getAllByFilters = async (req, res) => {
+export const getByFilters = async (req, res) => {
   try {
     const { filters } = req.body;
     if (!filters)
       return res.status(400).json({ message: "Filters are required" });
-    // console.log(filters);
 
     const queryArray = [];
     let locationFilter = null;
@@ -95,11 +95,38 @@ export const getAllByFilters = async (req, res) => {
       }
     }
 
+    const filtersCopy = JSON.parse(JSON.stringify(filters));
+    if (filtersCopy.location && filtersCopy.location.userCoords) {
+      delete filtersCopy.location.userCoords;
+    }
+    const cacheKey = `scooters_${JSON.stringify(filtersCopy)}`;
+    console.log("cacheKey", cacheKey);
+
+    const cachedFilteredScooters = cache.get(cacheKey);
+
+    if (cachedFilteredScooters && locationFilter) {
+      const { searchDistance, userCoords } = locationFilter || {};
+      if (searchDistance && userCoords) {
+        const filteredScooters = cachedFilteredScooters.filter((scooter) => {
+          const distance = geolib.getDistance(
+            { latitude: userCoords[0], longitude: userCoords[1] },
+            { latitude: scooter.latitude, longitude: scooter.longitude }
+          );
+          return distance <= searchDistance; // in meters
+        });
+
+        return res.status(200).json({ scooters: filteredScooters });
+      }
+    } else if (cachedFilteredScooters) {
+      return res.status(200).json({ scooters: cachedFilteredScooters });
+    }
+
     const scooters = await databases.listDocuments(
       process.env.APPWRITE_DATABASE_ID,
       process.env.APPWRITE_SCOOTER_COLLECTION_ID,
       queryArray
     );
+
     if (locationFilter) {
       const { searchDistance, userCoords } = locationFilter || {};
       if (!searchDistance || !userCoords) {
@@ -118,6 +145,37 @@ export const getAllByFilters = async (req, res) => {
 
     if (!scooters.documents.length)
       return res.status(400).json({ message: "Scooters not found" });
+
+    const cityUpdatePromises = [];
+
+    scooters.documents.forEach((scooter) => {
+      if (scooter.city === null || scooter.city === "") {
+        const updatePromise = reverseGeocode(
+          scooter.latitude,
+          scooter.longitude
+        )
+          .then((city) => {
+            scooter.city = city;
+            return databases.updateDocument(
+              process.env.APPWRITE_DATABASE_ID,
+              process.env.APPWRITE_SCOOTER_COLLECTION_ID,
+              scooter.$id,
+              {
+                city: city,
+              }
+            );
+          })
+          .catch((err) => {
+            console.log(err);
+          });
+
+        cityUpdatePromises.push(updatePromise);
+      }
+    });
+
+    await Promise.all(cityUpdatePromises);
+
+    cache.set(cacheKey, scooters.documents);
 
     return res.status(200).json({ scooters: scooters.documents });
   } catch (error) {
