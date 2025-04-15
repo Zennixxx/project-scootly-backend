@@ -8,3 +8,4 @@ export const client = new sdk.Client()
   .setKey(process.env.APPWRITE_API_KEY);
 export const databases = new sdk.Databases(client);
 export const users = new sdk.Users(client);
+export const storage = new sdk.Storage(client);

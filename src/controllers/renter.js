@@ -1,5 +1,5 @@
 import dotenv from "dotenv";
-import { databases, users } from "../utils/appwrite.js";
+import { databases, users, storage } from "../utils/appwrite.js";
 import sdk from "node-appwrite";
 
 dotenv.config();
@@ -57,5 +57,74 @@ export const getVerificationRequest = async (req, res) => {
     res.status(200).json(verificationRequests.documents);
   } catch (error) {
     res.status(500).json("Internal Server Error");
+  }
+};
+
+export const createScooter = async (req, res) => {
+  try {
+    const { name, price, maxSpeed, rentType, latitude, longitude } = req.body;
+    const userId = req.headers["user-id"];
+    if (!name || !price || !maxSpeed || !rentType || !userId) {
+      return res.status(400).json({ message: "Missing required fields" });
+    }
+
+    // Check for files
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({ message: "No images uploaded" });
+    }
+
+    // Upload images to Appwrite Storage using sdk.InputFile.fromBuffer
+    let imageIds = [];
+    for (const file of req.files) {
+      if (!file.buffer || !file.originalname) {
+        continue;
+      }
+      try {
+        const inputFile = sdk.InputFile.fromBuffer(
+          file.buffer,
+          file.originalname
+        );
+        const uploaded = await storage.createFile(
+          process.env.APPWRITE_SCOOTERS_IMAGES_BUCKET_ID,
+          sdk.ID.unique(),
+          inputFile
+        );
+        imageIds.push(uploaded.$id);
+      } catch (err) {
+        console.error("Image upload failed:", err.message);
+      }
+    }
+
+    if (imageIds.length === 0) {
+      return res
+        .status(400)
+        .json({ message: "No images were uploaded successfully" });
+    }
+
+    // Create scooter document
+    const doc = await databases.createDocument(
+      process.env.APPWRITE_DATABASE_ID,
+      process.env.APPWRITE_SCOOTER_COLLECTION_ID,
+      sdk.ID.unique(),
+      {
+        name,
+        price: Number(price),
+        maxSpeed: Number(maxSpeed),
+        rentType: rentType.toLowerCase(),
+        images: imageIds,
+        battery: 100,
+        rented: false,
+        latitude: latitude ? Number(latitude) : 0,
+        longitude: longitude ? Number(longitude) : 0,
+        renterUserId: userId,
+      }
+    );
+    res.status(201).json({
+      message: "Scooter created successfully",
+      scooterId: doc.$id,
+      images: imageIds,
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Create failed", error: error.message });
   }
 };
