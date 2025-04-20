@@ -68,12 +68,10 @@ export const createScooter = async (req, res) => {
       return res.status(400).json({ message: "Missing required fields" });
     }
 
-    // Check for files
     if (!req.files || req.files.length === 0) {
       return res.status(400).json({ message: "No images uploaded" });
     }
 
-    // Upload images to Appwrite Storage using sdk.InputFile.fromBuffer
     let imageIds = [];
     for (const file of req.files) {
       if (!file.buffer || !file.originalname) {
@@ -101,7 +99,6 @@ export const createScooter = async (req, res) => {
         .json({ message: "No images were uploaded successfully" });
     }
 
-    // Create scooter document
     const doc = await databases.createDocument(
       process.env.APPWRITE_DATABASE_ID,
       process.env.APPWRITE_SCOOTER_COLLECTION_ID,
@@ -126,5 +123,19 @@ export const createScooter = async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ message: "Create failed", error: error.message });
+  }
+};
+
+export const getRentingScooters = async (req, res) => {
+  try {
+    const userId = req.headers["user-id"];
+    const scooters = await databases.listDocuments(
+      process.env.APPWRITE_DATABASE_ID,
+      process.env.APPWRITE_SCOOTER_COLLECTION_ID,
+      [sdk.Query.equal("renterUserId", userId)]
+    );
+    res.status(200).json(scooters.documents);
+  } catch (error) {
+    res.status(500).json({ message: "Internal Server Error" });
   }
 };
