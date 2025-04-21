@@ -111,8 +111,8 @@ export const createScooter = async (req, res) => {
         images: imageIds,
         battery: 100,
         rented: false,
-        latitude: latitude ? Number(latitude) : 0,
-        longitude: longitude ? Number(longitude) : 0,
+        latitude: latitude !== undefined ? Number(latitude) : 0,
+        longitude: longitude !== undefined ? Number(longitude) : 0,
         renterUserId: userId,
       }
     );
@@ -123,6 +123,7 @@ export const createScooter = async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ message: "Create failed", error: error.message });
+    console.log("Create failed", error.message);
   }
 };
 
@@ -135,6 +136,73 @@ export const getRentingScooters = async (req, res) => {
       [sdk.Query.equal("renterUserId", userId)]
     );
     res.status(200).json(scooters.documents);
+  } catch (error) {
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+};
+
+export const deleteScooter = async (req, res) => {
+  try {
+    const { scooterId } = req.body;
+    const userId = req.headers["user-id"];
+
+    const scooter = await databases.getDocument(
+      process.env.APPWRITE_DATABASE_ID,
+      process.env.APPWRITE_SCOOTER_COLLECTION_ID,
+      scooterId
+    );
+
+    if (scooter.renterUserId !== userId) {
+      return res.status(403).json({ message: "You are not renter" });
+    }
+    if (scooter.rented) {
+      return res.status(400).json({ message: "Scooter is currently rented" });
+    }
+    const images = scooter.images || [];
+    for (const imageId of images) {
+      try {
+        await storage.deleteFile(
+          process.env.APPWRITE_SCOOTERS_IMAGES_BUCKET_ID,
+          imageId
+        );
+      } catch (err) {
+        console.error("Image deletion failed:", err.message);
+      }
+    }
+    const history = await databases.listDocuments(
+      process.env.APPWRITE_DATABASE_ID,
+      process.env.APPWRITE_RENT_HISTORY_COLLECTION_ID,
+      [sdk.Query.equal("scooterId", scooterId)]
+    );
+    if (history.total > 0) {
+      for (const doc of history.documents) {
+        await databases.deleteDocument(
+          process.env.APPWRITE_DATABASE_ID,
+          process.env.APPWRITE_RENT_HISTORY_COLLECTION_ID,
+          doc.$id
+        );
+      }
+    }
+    await databases.deleteDocument(
+      process.env.APPWRITE_DATABASE_ID,
+      process.env.APPWRITE_SCOOTER_COLLECTION_ID,
+      scooterId
+    );
+
+    res.status(200).json({ message: "Scooter deleted successfully" });
+  } catch (error) {
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+};
+
+export const getBalance = async (req, res) => {
+  try {
+    const userId = req.headers["user-id"];
+    const balance = (await users.get(userId)).prefs.balance;
+    if (balance === undefined) {
+      return res.status(400).json({ message: "Balance not found" });
+    }
+    res.status(200).json({ balance: Number(balance) });
   } catch (error) {
     res.status(500).json({ message: "Internal Server Error" });
   }

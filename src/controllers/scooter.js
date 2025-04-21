@@ -1,11 +1,11 @@
-import { databases } from "../utils/appwrite.js";
+import { databases, users } from "../utils/appwrite.js";
 import { Query } from "node-appwrite";
 import dotenv from "dotenv";
 import validator from "validator";
 import geolib from "geolib";
 import cache from "../utils/cache.js";
 import sdk from "node-appwrite";
-import { reverseGeocode } from "../utils/geoapify.js";
+import { updateScooterCity } from "../utils/geoapify.js";
 dotenv.config();
 
 export const getAllScooters = async (req, res) => {
@@ -149,28 +149,7 @@ export const getByFilters = async (req, res) => {
     const cityUpdatePromises = [];
 
     scooters.documents.forEach((scooter) => {
-      if (scooter.city === null || scooter.city === "") {
-        const updatePromise = reverseGeocode(
-          scooter.latitude,
-          scooter.longitude
-        )
-          .then((city) => {
-            scooter.city = city;
-            return databases.updateDocument(
-              process.env.APPWRITE_DATABASE_ID,
-              process.env.APPWRITE_SCOOTER_COLLECTION_ID,
-              scooter.$id,
-              {
-                city: city,
-              }
-            );
-          })
-          .catch((err) => {
-            console.log(err);
-          });
-
-        cityUpdatePromises.push(updatePromise);
-      }
+      cityUpdatePromises.push(updateScooterCity(scooter, databases));
     });
 
     await Promise.all(cityUpdatePromises);
@@ -223,7 +202,6 @@ export const rentScooter = async (req, res) => {
       return res.status(400).json({ message: "Scooter is already rented" });
     }
 
-    // Update only the fields that exist in the scooter collection schema
     const response = await databases.updateDocument(
       process.env.APPWRITE_DATABASE_ID,
       process.env.APPWRITE_SCOOTER_COLLECTION_ID,
@@ -236,7 +214,6 @@ export const rentScooter = async (req, res) => {
       }
     );
 
-    // Store the userId in the rental history instead
     const history = await databases.createDocument(
       process.env.APPWRITE_DATABASE_ID,
       process.env.APPWRITE_RENT_HISTORY_COLLECTION_ID,
@@ -250,6 +227,19 @@ export const rentScooter = async (req, res) => {
         status: "rented",
       }
     );
+
+    if (
+      scooter.renterUserId !== userId &&
+      scooter.renterUserId !== null &&
+      scooter.renterUserId !== " "
+    ) {
+      const renter = await users.get(scooter.renterUserId);
+      if (renter) {
+        await users.updatePrefs(scooter.renterUserId, {
+          balance: parseFloat(renter.prefs.balance) + parseFloat(totalCost),
+        });
+      }
+    }
 
     if (!history || !response) {
       await databases.updateDocument(
